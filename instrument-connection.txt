@@ -1,0 +1,85 @@
+
+c->i SYBP
+i->c ARSP\nARRS\nARTM OFF\nAVRS\nAVSP\nARBM ?\n
+
+i->c ARBM START, STOP\n
+c->i ARBM START, STOP\n
+
+c->i ARBM ?\n
+c->i ARBM START, STOP\n
+
+c->i ARBM START, STOP\n
+i->c ARBM START, STOP\n
+
+c->i AVTS NORM\nAVSL 1000\nAVDF HEX, 2\nAVST\nARSM OFF\nBRSM OFF\nARRM PASSIVE\n
+i->c 
+ARLM SYSTEM\n
+ARGR\n
+TTDL AXPRE\n
+TTDL AXINTO\n
+TTDL AXPOST\n
+TTCR AXPRE, HOST_CMD\n
+TTCR AXINTO, AR_START\n
+TTCR AXPOST, AR_STOP\n
+TTOP AXPRE, 0; SYNO\n
+TTOP AXINTO, 0; TTSP AXPRE\n
+TTOP AXINTO, 0; TTDS AXPRE\n
+TTOP AXPOST, 0; TTSP AXINTO\n
+TTOP AXPOST, 0; TTDS AXINTO\n
+TTEN AXPRE\n
+TTEN AXINTO\n
+TTEN AXPOST\n
+
+c->i ARSS
+i->c ARSS READY, 0\n
+
+c->i TTSS AXPRE\n
+i->c TTSS AXPRE, ENABLED, -1, 0\n
+
+c->i TTSS AXINTO\n
+i->c TTSS AXINTO, ENABLED, -1, 0\n
+
+c->i TTSS AXPOST\n
+i->c TTSS AXPOST, ENABLED, -1, 0\n
+
+c->i ATRD\n
+i->c ATRD 255\n
+i->c AVSL 1000\n
+
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 0, 230811\n
+
+c->i AVDF HEX, 2\n
+i->c AVSS ON, 0, 5, 0, 230811\n
+
+i->c AVRD HEX, 002;0023 9D1800239CE9\n
+i->c AVRD HEX, 001;0023 E4DD\n
+i->c AVRD HEX, 002;0025 68CC00241BDB\n
+
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 235811\n
+
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 237811\n
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 239811\n
+
+AVRD\n
+i->c AVRD HEX, 001;0023 9D40\n
+
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 240811\n
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 242811\n
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 244811\n
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 246811\n
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 249811\n
+
+[...]
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 1194811\n
+c->i AVSS\n
+i->c AVSS ON, 0, 5, 2, 1304811\n

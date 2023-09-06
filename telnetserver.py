@@ -1,9 +1,9 @@
 import socket
 import time
 
-HOST = "10.1.2.181"
+HOST = "10.1.10.101"
 SUBNET_MASK="255.255.255.0"
-GATEWAY="10.1.2.1"
+GATEWAY="10.1.10.1"
 PORT = 23 # this needs to be 23 since agilent expects tehre to be a client
 
 
