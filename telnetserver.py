@@ -85,3 +85,5 @@ with socket.socket() as serversock:
                         slashCommand(conn)
                     case "?":
                         questionmarkCommand(conn)
+                    case other:
+                        conn.sendall(b'\x3e') #default einfach ">" antworten und ignorieren, den mist brauchen wir nicht
