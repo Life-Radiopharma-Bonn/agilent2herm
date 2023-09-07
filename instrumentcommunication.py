@@ -7,8 +7,7 @@ from multiprocessing import Process, Queue
 
 HOST = "10.1.10.101"
 PORT = 9100 # this needs to be 23 since agilent expects tehre to be a client
-
-READCOUNTER=0
+FAKTOR = 100000.0
 
 START = datetime.datetime.now()
 
@@ -76,7 +75,7 @@ def AVRD(conn,data,q):
     DELIMITER="0023"
     HEADER = """AVRD HEX, 00"""+str(qsize)+""";"""
     for i in range(0,qsize):
-        val_str = str(hex(q.get())[2:]).upper().zfill(8)
+        val_str = str(hex(encodeWert(q.get()))[2:]).upper().zfill(8)
         HEADER = HEADER + val_str
     HEADER = HEADER + "\n"
     print(f"Sending AVRD {HEADER}",flush=True)
@@ -104,14 +103,24 @@ def AVSL(conn,data,q):
         #time.sleep(1)
     #AVRD(conn,data,q)
 
+
+def encodeWert(inp):
+    ###nimmt einen wert (inp) entgegen und encoded ihn so, dass auf agilent-seite der wert so ankommt.
+    #return int(((((inp+4)/FAKTOR) + 0.02281)/1e-8))
+    return min(int(((((inp)/FAKTOR) + 0.02285)/1e-8)),4294967295) #0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
+
 def herm_dummy_value_gen(q):
     print("starting herm dummy value gen")
-    start_val = (2**32)-1
+    i=0
+    start_val = 4
     incr = 2**16
-    while True and q.qsize() < 100:
+    while True and q.qsize() < 10000:
         print("herm side qsize: " +str(q.qsize()))
         q.put(start_val)
         #start_val = start_val + incr
+        i = i+1
+        if i % 60 == 0:
+            start_val = start_val * 10
         time.sleep(1)
 
 with socket.socket() as serversock:
