@@ -102,7 +102,7 @@ def AVSL(conn,data,q):
     else:
         print(f"Received AVSL (sleep?) {data}",flush=True)
         #time.sleep(1)
-        AVRD(conn,data,q)
+    #AVRD(conn,data,q)
 
 def herm_dummy_value_gen(q):
     print("starting herm dummy value gen")
