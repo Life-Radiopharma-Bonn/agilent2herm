@@ -118,16 +118,19 @@ def encodeWert(inp):
 
 def herm_dummy_value_gen(q):
     print("starting herm dummy value gen")
-    i=0
-    start_val = 4
-    incr = 2**16
-    while True and q.qsize() < 10000:
+
+    def readFromFile():
+        try:
+            line = ""
+            with open("/mnt/berthold/latest","r") as f:
+                line = f.read()
+            return line
+        except:
+            return -1
+
+    while True:
         print("herm side qsize: " +str(q.qsize()))
-        q.put(start_val)
-        #start_val = start_val + incr
-        i = i+1
-        if i % 60 == 0:
-            start_val = start_val * 10
+        q.put(int(readFromFile()))
         time.sleep(1)
 
 with socket.socket() as serversock:
@@ -147,9 +150,6 @@ with socket.socket() as serversock:
             p = Process(target=herm_dummy_value_gen, args=(q,))
             p.start()
 
-            COUNTER=0
-            READCOUNTER=0
-    
             while True and not conn._closed and not conn.fileno()==-1:
                 data = readMsg(conn)
                 match data.split(" ")[0]:

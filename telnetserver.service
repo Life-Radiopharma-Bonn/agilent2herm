@@ -1,0 +1,9 @@
+[Unit]
+Description=Agilent 39500 Telnet Service
+
+[Service]
+Type=simple
+ExecStart=python3 /lrp/telnetserver.py
+
+[Install]
+WantedBy=multi-user.target

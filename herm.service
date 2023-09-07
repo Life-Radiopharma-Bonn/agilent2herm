@@ -1,0 +1,9 @@
+[Unit]
+Description=Herm Service
+
+[Service]
+Type=simple
+ExecStart=python3 /lrp/herm.py
+
+[Install]
+WantedBy=multi-user.target
