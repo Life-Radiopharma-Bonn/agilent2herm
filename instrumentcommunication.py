@@ -106,12 +106,12 @@ def AVSL(conn,data,q):
 
 def herm_dummy_value_gen(q):
     print("starting herm dummy value gen")
-    start_val = 0
+    start_val = (2**32)-1
     incr = 2**16
     while True and q.qsize() < 100:
         print("herm side qsize: " +str(q.qsize()))
         q.put(start_val)
-        start_val = start_val + incr
+        #start_val = start_val + incr
         time.sleep(1)
 
 with socket.socket() as serversock:
