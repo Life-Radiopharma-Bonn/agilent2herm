@@ -107,7 +107,14 @@ def AVSL(conn,data,q):
 def encodeWert(inp):
     ###nimmt einen wert (inp) entgegen und encoded ihn so, dass auf agilent-seite der wert so ankommt.
     #return int(((((inp+4)/FAKTOR) + 0.02281)/1e-8))
-    return min(int(((((inp)/FAKTOR) + 0.02285)/1e-8)),4294967295) #0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
+
+    #clippen am unteren ende
+    mod_inp = inp
+    if inp < 0:
+        mod_inp=0
+    #minimalen wert auf 0 setzen
+
+    return min(int(((((mod_inp)/FAKTOR) + 0.02285)/1e-8)),4294967295) #0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
 
 def herm_dummy_value_gen(q):
     print("starting herm dummy value gen")
