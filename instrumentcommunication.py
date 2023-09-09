@@ -110,8 +110,8 @@ def TTSS(conn,data):
                 delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
                 HEADER = """TTSS """+data.split(" ")[1]+""", RUNNING, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
             else:
-                delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
                 RUN_STOPTIME=datetime.datetime.now()
+                delta = int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000)
                 HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
     else:
         if not RUNNING:
@@ -131,6 +131,7 @@ def TTSS(conn,data):
     conn.sendall(HEADER.encode("ascii"))
 
 def ARXR(conn,data):
+    ARSP(conn,data)
     myprint(f"Received ARXR",flush=True)
 
 def AVRD(conn,data,q):
@@ -175,7 +176,20 @@ def AVDF(conn,data):
 def ARSP(conn,data):
     #STOP command
     global RUNNING
-    RUNNING=False
+    global RUN_STARTTIME
+    global RUN_STOPTIME
+    global METHODENLAUFZEIT
+
+    if RUNNING==True:
+        myprint("_______________",flush=True)
+        myprint("!RUNNING=FALSE!",flush=True)
+        myprint("_______________",flush=True)
+        RUNNING=False
+        RUN_STARTTIME=-1
+        RUN_STOPTIME=-1
+        METHODENLAUFZEIT=-1
+    #KEINE ANTWORT
+
     #KEINE ANTWORT
 
 def ARGR(conn,data):
@@ -191,8 +205,10 @@ def ARGR(conn,data):
 def ARCL(conn,data):
     #KEINE ANTWORT
     global RUNNING
+    myprint("Received ARCL")
     #RUNNING = True
     #RUN_STARTTIME=datetime.datetime.now()
+    ARSP(conn,data)
     pass
 
 def TTOP(conn,data):
