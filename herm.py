@@ -15,6 +15,9 @@ def persistValue(val):
     with open("/mnt/berthold/tmp","w") as f:
         f.write(str(val))
     os.rename("/mnt/berthold/tmp","/mnt/berthold/latest")
+    with open("/mnt/berthold/tmp_timestamp","w") as f:
+        f.write(str(datetime.datetime.now().timestamp()))
+    os.rename("/mnt/berthold/tmp_timestamp","/mnt/berthold/timestamp")
 
 
 with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:

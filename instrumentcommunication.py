@@ -176,7 +176,10 @@ def encodeWert(inp):
     mod_inp = inp
     if inp < 0:
         mod_inp=0
+        return 0
     #minimalen wert auf 0 setzen
+    #damit erzeugen wir einen negativen wert am unteren ende. 
+    #hoffentlich können wir damit fehler schneller erkennen, da wir keinen echten Status setzen können.
 
     return min(int(((((mod_inp)/FAKTOR) + 0.02285)/1e-8)),4294967295) #0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
 
@@ -193,10 +196,25 @@ def herm_dummy_value_gen(q):
         except:
             INSTRUMENT_STATUS="NOT_READY, 130"
             return -1
+    def readTimestampDeltaFromFile():
+        global INSTRUMENT_STATUS
+        try:
+            line = ""
+            with open("/mnt/berthold/timestamp","r") as f:
+                line = f.read()
+            return (datetime.datetime.now()-datetime.datetime.fromtimestamp(int(line))).total_seconds()<2
+        except Exception as e:
+            print(e)
+            return False 
 
     while True:
         myprint("herm side qsize: " +str(q.qsize()))
-        q.put(int(readFromFile()))
+        if readTimestampDeltaFromFile():
+            myprint("Valid value from herm received in the past 2s",flush=True)
+            q.put(int(readFromFile()))
+        else:
+            myprint("!NO VALID VALUE FROM HERM - SENDING DUMMY NEGATIVE VALUE",flush=True)
+            q.put(-1)
         time.sleep(1)
 
 with socket.socket() as serversock:
