@@ -7,7 +7,7 @@ from multiprocessing import Process, Queue
 
 HOST = "0.0.0.0"
 PORT = 9100 # this needs to be 23 since agilent expects tehre to be a client
-FAKTOR = 100000.0
+FAKTOR = 1000000.0
 
 START = datetime.datetime.now()
 DEBUG=True
@@ -18,6 +18,7 @@ RUNNING = False
 
 METHODENLAUFZEIT = -1
 RUN_STARTTIME=datetime.datetime.now()
+RUN_STOPTIME=-1
 
 def myprint(msg,flush=True):
     global DEBUG
@@ -62,21 +63,33 @@ def AVTS(conn,data):
     myprint(f"Sending AVTS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
+COUNTER = 1
+STATUS = 0
 def ARSS(conn,data):
     global RUNNING
+    global COUNTER
+    global STATUS
+    global RUN_STARTTIME
     if RUNNING:
-        HEADER = """ARSS RUN, 5\n"""
+        delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds())
+        HEADER = """ARSS RUN, """+str(delta)+"""\n"""
     else:
         HEADER = """ARSS READY, 0\n"""
+        print(HEADER,flush=True)
 
     myprint(f"Sending ARSS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
+AVSSc=0
 def AVSS(conn,data,q):
     global AVSSc
     global START
+    global RUNNING
     delta = str(int((datetime.datetime.now()-START).total_seconds()*1000))
-    HEADER = """AVSS ON, 0, 5, """+str(q.qsize())+""", """ + delta + """\n"""
+    state = "0"
+    if RUNNING:
+        state="5"
+    HEADER = """AVSS ON, """+state+""", 5, """+str(min(q.qsize(),9))+""", """ + delta + """\n"""
     #HEADER = """AVSS ON, 0, 5, 2, """ + delta + """\n"""
     myprint(f"Sending AVSS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -84,22 +97,45 @@ def AVSS(conn,data,q):
 def TTSS(conn,data):
     global RUNNING
     global RUN_STARTTIME
+    global RUN_STOPTIME
     global METHODENLAUFZEIT
     HEADER=""
-    if data.split(" ")[1]=="AXINTO,":
+    myprint("TTSS"+data+"\tRUNNING:"+str(RUNNING)+"\tRUN_STARTTIME:"+str(RUN_STARTTIME)+"\tMETHODENLAUFZEIT:"+str(METHODENLAUFZEIT))
+    if data.split(" ")[1]=="AXINTO":
         if not RUNNING:
             HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
         else:
-            delta = str(int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000))
-            HEADER = """TTSS """+data.split(" ")[1]+""", RUNNING, """+delta+""", """+str(METHODENLAUFZEIT)+"""\n"""
+            #delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
+            if int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000) < METHODENLAUFZEIT:
+                delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
+                HEADER = """TTSS """+data.split(" ")[1]+""", RUNNING, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
+            else:
+                delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
+                RUN_STOPTIME=datetime.datetime.now()
+                HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
     else:
-        HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, -1, 0\n"""
+        if not RUNNING:
+            HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
+        else:
+            if data.split(" ")[1]=="AXPRE":
+                HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, -1, 0\n"""
+            else:
+                HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
+            
+            if data.split(" ")[1]=="AXPOST":
+                HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
+                if RUN_STOPTIME != -1:
+                    HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, 15, 0\n"""
 
     myprint(f"Sending TTSS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
+def ARXR(conn,data):
+    myprint(f"Received ARXR",flush=True)
+
 def AVRD(conn,data,q):
-    qsize = q.qsize()
+    global AVSSc
+    qsize = AVSSc
 
     HEADER = """AVRD HEX, 00"""+str(qsize)+""";"""
     for i in range(0,qsize):
@@ -111,7 +147,23 @@ def AVRD(conn,data,q):
     conn.sendall(HEADER.encode("ascii"))
 
 def AREV(conn,data,q):
-    HEADER = "AREV NONE; NONE\n"
+    global RUNNING
+    global RUN_STARTTIME
+    global RUN_STOPTIME
+    global START
+    HEADER = ""
+    if RUNNING:
+        if (datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000 >= METHODENLAUFZEIT:
+            RUN_STOPTIME = datetime.datetime.now()
+            #RUNNING=False
+        delta = str(int((RUN_STARTTIME-START).total_seconds()*1000))
+        if RUN_STOPTIME == -1:
+            HEADER = "AREV HOST, "+str(delta)+", 223; NONE\n"
+        else:
+            HEADER = "AREV HOST, "+str(delta)+", 223; HOST, "+str(int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000))+", 255\n"
+    else:
+        HEADER = "AREV NONE; NONE\n"
+
     myprint(f"Sending AREV {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
@@ -120,27 +172,54 @@ def AVDF(conn,data):
     AVSSc = int(data.split(" ")[2])
     #KEINE ANTWORT
 
+def ARSP(conn,data):
+    #STOP command
+    global RUNNING
+    RUNNING=False
+    #KEINE ANTWORT
+
 def ARGR(conn,data):
     #KEINE ANTWORT
+#    global RUNNING
+#    if RUNNING==False:
+#        RUNNING = True
+#        RUN_STARTTIME=datetime.datetime.now()
+    #else:
+    #    RUNNING=False
     pass
 
 def ARCL(conn,data):
     #KEINE ANTWORT
     global RUNNING
-    RUNNING = True
-    RUN_STARTTIME=datetime.datetime.now()
+    #RUNNING = True
+    #RUN_STARTTIME=datetime.datetime.now()
+    pass
 
 def TTOP(conn,data):
     global METHODENLAUFZEIT
-    inp = data.split(" "))
-    if inp[1].=="AXINTO,":
-        METHODENLAUFZEIT = int(inp[2])
-        myprint("Received AXINTO - planned runtime:"+str(planned_runtime),flush=True)
+    inp = data.split(" ")
+    if inp[1]=="AXINTO,":
+        METHODENLAUFZEIT = int(inp[2].split(";")[0])
+        myprint("Received AXINTO - planned runtime:"+str(METHODENLAUFZEIT),flush=True)
     #KEINE ANTWORT
     pass
 
 def TTEN(conn,data):
+    global RUNNING
     myprint("Received TTEN"+data,flush=True)
+    #KEINE ANTWORT
+    pass
+
+def ARST(conn,data):
+    global RUNNING
+    global RUN_STARTTIME
+    myprint("Received ARST COMMAND "+data,flush=True)
+    if RUNNING==False:
+        RUNNING = True
+        RUN_STARTTIME=datetime.datetime.now()
+        myprint("_______________",flush=True)
+        myprint("!RUNNING=TRUE!!",flush=True)
+        myprint("_______________",flush=True)
     #KEINE ANTWORT
     pass
 
@@ -276,6 +355,10 @@ with socket.socket() as serversock:
                         TTSS(conn, data)
                 elif data.split(" ")[0]=="TTOP":
                         TTOP(conn, data)
+                elif data.split(" ")[0]=="ARSP":
+                        ARSP(conn, data)
+                elif data.split(" ")[0]=="ARST":
+                        ARST(conn, data)
                 else:
                     myprint("UNKNOWN PACKAGE:",flush=True)
                     myprint(data,flush=True)
