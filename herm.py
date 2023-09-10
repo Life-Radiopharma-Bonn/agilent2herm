@@ -38,7 +38,7 @@ with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:
     time.sleep(0.5)
     print(readUntil(ser,"\r\n"),flush=True)
     time.sleep(0.5)
-    ser.write(b'SETCHANNEL 2\r\n')
+    ser.write(b'SETCHANNEL 1\r\n')
     ser.flush()
     time.sleep(0.5)
     print(readUntil(ser,"\r\n"),flush=True)
@@ -57,6 +57,7 @@ with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:
     time.sleep(0.5)
     while True:
         line = readUntil(ser,"\r\n") #headerzeile ignorieren
+        #print(line)
         cts = parseLine(line)[2]
         persistValue(cts)
-        print(".",end="",flush=True)
+        print(line,flush=True)
