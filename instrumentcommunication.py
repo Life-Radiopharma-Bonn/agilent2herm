@@ -4,6 +4,7 @@ import random
 import datetime
 
 from multiprocessing import Process, Queue
+from enum import Enum
 
 HOST = "0.0.0.0"
 PORT = 9100 # this needs to be 23 since agilent expects tehre to be a client
@@ -13,7 +14,7 @@ START = datetime.datetime.now()
 DEBUG=True
 
 
-INSTRUMENT_STATUS = "READY, 0"
+READY_STATE = ""
 RUNNING = False
 
 METHODENLAUFZEIT = -1
@@ -35,7 +36,7 @@ def readMsg(conn):
         buf = buf + tmp.decode("ascii")
         #myprint(f"buffer: {buf}")
         #myprint(f"buffer: {buf}")
-    myprint(f"buffer: {buf}")
+    #myprint(f"buffer: {buf}")
     return buf.strip() #nur trimmed strings zurückgeben
 
 def SYID(conn):
@@ -95,6 +96,9 @@ def ARSS(conn,data):
     Req: "ARSS\\n"
     Resp:"ARSS RUN, 5\\n"
 
+    THIS SWITCH ONLY HAPPENS IF THIS INSTRUMENT IS RUNNING ALONE WITHOUT ANY OTHERS INTERACTING WITH IT.
+    NOT GOING TO BE IMPLEMENTED AS THIS IS NOT A REQUIREMENT FOR US CURRENTLY
+    
     Typically the Interval changes in Steps of 128, so once enough time has passed, (128s) this will become 5+128=133
 
     Req: "ARSS\\n"
@@ -108,12 +112,18 @@ def ARSS(conn,data):
     """
     global RUNNING
     global RUN_STARTTIME
+    global READY_STATE
+    HEADER = ""
     if RUNNING:
         delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds())
-        HEADER = """ARSS RUN, """+str(delta)+"""\n"""
+        if READY_STATE == "":
+            HEADER = """ARSS RUN, 5\n"""
     else:
         HEADER = """ARSS READY, 0\n"""
         print(HEADER,flush=True)
+
+    if READY_STATE != "":
+        HEADER = READY_STATE
 
     myprint(f"Sending ARSS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -126,17 +136,28 @@ def AVSS(conn,data,q):
     AVSS\\n
 
     Responses are shaped like:
-    AVSS [ON|OFF], RUNTIME_IN_SECONDS, 5, ITEMS_IN_QUEUE, MILLISECONDS_SINCE_INSTRUMENT_START\\n
+    AVSS [ON|OFF], X, 5, ITEMS_IN_QUEUE, MILLISECONDS_SINCE_INSTRUMENT_START\\n
+
+    With X 
+        Outside of Runs
+            X=0 
+        In Runs
+            X=5
+            After 124 seconds into the run
+            X=133 and stays there.
 
     The Switch between ON and OFF only seems to be used after an acquisition.
     """
     global AVSSc
     global START
     global RUNNING
+    global READY_STATE
     delta = str(int((datetime.datetime.now()-START).total_seconds()*1000))
     state = "0"
     if RUNNING:
         state="5"
+    if not RUNNING and READY_STATE != "":
+        state="14"
     HEADER = """AVSS ON, """+state+""", 5, """+str(min(q.qsize(),9))+""", """ + delta + """\n"""
     #HEADER = """AVSS ON, 0, 5, 2, """ + delta + """\n"""
     myprint(f"Sending AVSS {HEADER}",flush=True)
@@ -177,6 +198,7 @@ def TTSS(conn,data):
     global RUN_STARTTIME
     global RUN_STOPTIME
     global METHODENLAUFZEIT
+    global READY_STATE
     HEADER=""
     myprint("TTSS"+data+"\tRUNNING:"+str(RUNNING)+"\tRUN_STARTTIME:"+str(RUN_STARTTIME)+"\tMETHODENLAUFZEIT:"+str(METHODENLAUFZEIT))
     if data.split(" ")[1]=="AXINTO":
@@ -191,6 +213,9 @@ def TTSS(conn,data):
                 RUN_STOPTIME=datetime.datetime.now()
                 delta = int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000)
                 HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
+                READY_STATE = "ARSS NOT_READY, 14\n"
+
+        
     else:
         if not RUNNING:
             HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
@@ -208,9 +233,14 @@ def TTSS(conn,data):
     myprint(f"Sending TTSS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
+ARXR_COUNTER=-1
+
 def ARXR(conn,data):
     #ARSP(conn,data)
     myprint(f"Received ARXR",flush=True)
+    global ARXR_COUNTER
+    ARXR_COUTNER=0
+
 
 def AVRD(conn,data,q):
     """Channel A Value Read - Returns X items from the Instrument Queue
@@ -266,7 +296,7 @@ def AREV(conn,data,q):
         if RUN_STOPTIME == -1:
             HEADER = "AREV HOST, "+str(delta)+", 223; NONE\n"
         else:
-            HEADER = "AREV HOST, "+str(delta)+", 223; HOST, "+str(int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000))+", 255\n"
+            HEADER = "AREV HOST, "+str(delta)+", 223; HOST, "+str(int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000))+", 223\n"
     else:
         HEADER = "AREV NONE; NONE\n"
 
@@ -309,15 +339,14 @@ def ARSP(conn,data):
 
 def ARGR(conn,data):
     """Channel A Get Ready"""
-    myprint("Received ARGR")
-    #KEINE ANTWORT
-#    global RUNNING
-#    if RUNNING==False:
-#        RUNNING = True
-#        RUN_STARTTIME=datetime.datetime.now()
-    #else:
-    #    RUNNING=False
-    pass
+    global READY_STATE
+    global RUNNING
+    if READY_STATE != "":
+        myprint("Received ARGR - setting ready-state from "+READY_STATE+" to \"\"")
+        READY_STATE=""
+        if RUNNING:
+            myprint("STOPPING RUN!",flush=True)
+
 
 def ARCL(conn,data):
     #KEINE ANTWORT
@@ -368,7 +397,7 @@ def ATRD(conn,data):
     We will answer statically with 255 here, which seems to be an "alright on our end"
     """
     HEADER = """ATRD 255\n"""
-    myprint(f"Sending ATRD(1) {HEADER}",flush=True)
+    #myprint(f"Sending ATRD(1) {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
     
 def AVSL(conn,data,q):
@@ -377,10 +406,11 @@ def AVSL(conn,data,q):
     i = data.split(" ")[1]
     if i == "?":
         HEADER = """AVSL 1000\n"""
-        myprint(f"Sending AVSL {HEADER}",flush=True)
+        #myprint(f"Sending AVSL {HEADER}",flush=True)
         conn.sendall(HEADER.encode("ascii"))
     else:
-        myprint(f"Received AVSL {data}",flush=True)
+        pass
+        #myprint(f"Received AVSL {data}",flush=True)
         #time.sleep(1)
     #AVRD(conn,data,q)
 
@@ -416,7 +446,7 @@ def herm_dummy_value_gen(q):
             line = ""
             with open("/mnt/berthold/latest","r") as f:
                 line = f.read()
-            return line
+            return line.strip()
         except:
             INSTRUMENT_STATUS="NOT_READY, 130"
             return -1
@@ -426,7 +456,7 @@ def herm_dummy_value_gen(q):
             line = ""
             with open("/mnt/berthold/timestamp","r") as f:
                 line = f.read()
-            return (datetime.datetime.now()-datetime.datetime.fromtimestamp(int(line))).total_seconds()<2
+            return (datetime.datetime.now()-datetime.datetime.fromtimestamp(int(line.strip()))).total_seconds()<=2
         except Exception as e:
             print(e)
             return False 
@@ -444,6 +474,14 @@ def herm_dummy_value_gen(q):
 
 class VirtualInstrument():
     """A simple class for emulating the communcations protocol of an Agilent/HP 35900 Series II"""
+
+    class InstrumentState(Enum):
+        IDLE = 0
+        PRERUN = 1
+        RUN = 2
+        POSTRUN = 3
+
+    state = InstrumentState.IDLE
 
 with socket.socket() as serversock:
     serversock.bind((HOST,PORT))
@@ -502,6 +540,8 @@ with socket.socket() as serversock:
                         TTSS(conn, data)
                 elif data.split(" ")[0]=="TTOP":
                         TTOP(conn, data)
+
+
                 elif data.split(" ")[0]=="ARSP":
                         ARSP(conn, data)
                 elif data.split(" ")[0]=="ARST":
