@@ -87,13 +87,24 @@ def ARSS(conn,data):
     Resp: ARSS STATUS_TEXT, STATUS_CODE\\n
 
     In Online-Mode this usually looks like
-    Req: ARSS\\n
-    Resp: ARSS READY, 0\\n
+    Req: "ARSS\\n"
+    Resp:"ARSS READY, 0\\n"
 
     However during a measurement, the STATUS_TEXT changes to "RUN" with the STATUS_CODE becoming a seconds counter?
 
-    Req: ARSS\\n
-    Resp: ARSS READY, 128\\n
+    Req: "ARSS\\n"
+    Resp:"ARSS RUN, 5\\n"
+
+    Typically the Interval changes in Steps of 128, so once enough time has passed, (128s) this will become 5+128=133
+
+    Req: "ARSS\\n"
+    Resp:"ARSS RUN, 133\\n"
+
+    etc.
+
+    Also there is a Status NOT_READY, that is being used AFTER measurements, maybe to indicate a clean stop?
+    For NOT_READY the Code is typically 130 or 142 in my tests. (+x*4 basically)
+
     """
     global RUNNING
     global RUN_STARTTIME
