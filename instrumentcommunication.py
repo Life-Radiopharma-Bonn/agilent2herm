@@ -2,9 +2,22 @@ import socket
 import time
 import random
 import datetime
+import inotify.adapters
+import math
 
 from multiprocessing import Process, Queue
 from enum import Enum
+import signal
+class ProcessKiller:
+    SHOULD_END = False
+    def exit_gracefully(self,*args):
+        print("RECEIVED STOP SIGNAL - PREPARING TO END")
+        self.SHOULD_END=True
+
+    def __init__(self):
+        print("Setting up process killer for sigint and sigterm",flush=True)
+        signal.signal(signal.SIGINT,self.exit_gracefully)
+        #signal.signal(signal.SIGTERM,self.exit_gracefully)
 
 HOST = "0.0.0.0"
 PORT = 9100 # this needs to be 23 since agilent expects tehre to be a client
@@ -12,6 +25,7 @@ FAKTOR = 1000000.0
 
 START = datetime.datetime.now()
 DEBUG=True
+killer = ProcessKiller()
 
 
 READY_STATE = ""
@@ -36,7 +50,7 @@ def readMsg(conn):
         buf = buf + tmp.decode("ascii")
         #myprint(f"buffer: {buf}")
         #myprint(f"buffer: {buf}")
-    #myprint(f"buffer: {buf}")
+    myprint(f"buffer: {buf}")
     return buf.strip() #nur trimmed strings zurückgeben
 
 def SYID(conn):
@@ -59,9 +73,7 @@ def SYSN(conn):
     conn.sendall(HEADER)
 
 def SYBP(conn):
-    HEADER = """ARSP\nARRS\nARTM OFF\nAVRS\nAVSP\nARBM ?\n""".encode("ascii")
-    myprint(f"Sending SYBP {HEADER}",flush=True)
-    conn.sendall(HEADER)
+    myprint(f"Received SYBP - no answer",flush=True)
 
 def ARBM(conn,data):
     """Channel A Request Button Mode
@@ -437,7 +449,7 @@ def encodeWert(inp):
 
     return min(int(((((mod_inp)/FAKTOR) + 0.02285)/1e-8)),4294967295) #0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
 
-def herm_dummy_value_gen(q):
+def herm_dummy_value_gen(q,killer):
     myprint("starting herm dummy value gen")
 
     def readFromFile():
@@ -450,27 +462,67 @@ def herm_dummy_value_gen(q):
         except:
             INSTRUMENT_STATUS="NOT_READY, 130"
             return -1
-    def readTimestampDeltaFromFile():
-        global INSTRUMENT_STATUS
-        try:
-            line = ""
-            with open("/mnt/berthold/timestamp","r") as f:
-                line = f.read()
-            return (datetime.datetime.now()-datetime.datetime.fromtimestamp(int(line.strip()))).total_seconds()<=2
-        except Exception as e:
-            print(e)
-            return False 
+    #i = inotify.adapters.Inotify()
+    #i.add_watch("/mnt/berthold/latest")
 
-    while True:
+    #while True:
+    #    events = i.event_gen(yield_nones=False, timeout_s=1)
+    #    events = list(events)
+    #    print(events)
+    #    if len(events) > 0:
+    #    #for i in events:
+    #    #    (_, type_names, path, filename) = i
+    #    #    if filename=="latest" and  'IN_MOVED_TO' in type_names:
+    #        q.put(int(readFromFile()))
+    #        myprint("Got data from HERM")
+    #    else:
+    #        myprint("No data from HERM")
+    #        q.put(-100)
+
+    time.sleep(3) #ungefähr 6 sekunden dauert die inistialisierung des UIB2, daher bringen wir so die Signale übereinander
+    
+    start_time = datetime.datetime.now()
+    iteration = 0
+
+    while not killer.SHOULD_END:
         myprint("herm side qsize: " +str(q.qsize()))
-        if readTimestampDeltaFromFile():
-            myprint("Valid value from herm received in the past 2s",flush=True)
-            q.put(int(readFromFile()))
-        else:
-            myprint("!NO VALID VALUE FROM HERM - SENDING DUMMY NEGATIVE VALUE",flush=True)
-            q.put(-1)
-        time.sleep(1)
+        if q.qsize() > 100:
+            print("client seems gone - dieing this thread")
+            break
+        #if readTimestampDeltaFromFile():
+        #    myprint("Valid value from herm received in the past 2s",flush=True)
+        buf = ""
+        while buf == "":
+            try:
+                buf = readFromFile()
+            except:
+                pass
+        q.put(int(buf))
+        #else:
+        #    myprint("!NO VALID VALUE FROM HERM - SENDING DUMMY NEGATIVE VALUE",flush=True)
+        #    q.put(-1)
+        
+        tmp_time = datetime.datetime.now()
+        delta = tmp_time-start_time
+        to_sleep = delta.total_seconds()
+        iteration = iteration+1
 
+        for i in range(0,int(to_sleep-iteration)):
+            iteration = iteration+1
+            q.put(int(buf))
+            print(f"discrepancy between {to_sleep} and {iteration} putting additional data:{i}")
+            if iteration % 8505 == 0:
+                print(f"discrepancy 8505 step second without increasing iterations counter")
+                q.put(int(buf))
+
+        #if iteration < 15:
+        #    time.sleep(1.0)
+        #else:
+        #    #1.0022380
+        #    avg_sleep = to_sleep/iteration - 1.0
+        #    time.sleep(1.00-avg_sleep)
+        #    print(f"{avg_sleep} avg-sleep")
+        time.sleep(1.0)
 
 class VirtualInstrument():
     """A simple class for emulating the communcations protocol of an Agilent/HP 35900 Series II"""
@@ -483,70 +535,84 @@ class VirtualInstrument():
 
     state = InstrumentState.IDLE
 
+def InstrumentClient(conn,q,killer,client_id):
+    while not killer.SHOULD_END and not conn._closed and not conn.fileno()==-1:
+        print(f"[{client_id}]KILLER:"+str(killer.SHOULD_END),flush=True)
+        data = readMsg(conn)
+        if data.split(" ")[0]=="SYID":
+                SYID(conn)
+        elif data.split(" ")[0]=="SYSN":
+                SYSN(conn)
+        elif data.split(" ")[0]=="SYBP":
+                SYBP(conn)
+        elif data.split(" ")[0]=="ARBM":
+                ARBM(conn, data)
+        elif data.split(" ")[0]=="ARGR":
+                ARGR(conn, data)
+        elif data.split(" ")[0]=="ARCL":
+                ARCL(conn, data)
+        elif data.split(" ")[0]=="ARXR":
+                ARXR(conn, data)
+        elif data.split(" ")[0]=="ARSS":
+                ARSS(conn, data)
+        elif data.split(" ")[0]=="AVTS":
+                AVTS(conn, data)
+        elif data.split(" ")[0]=="AVSS":
+                AVSS(conn, data, q)
+        elif data.split(" ")[0]=="AVDF":
+                AVDF(conn, data)
+        elif data.split(" ")[0]=="AVRD":
+                AVRD(conn, data, q)
+        elif data.split(" ")[0]=="AVSL":
+                AVSL(conn, data, q)
+        elif data.split(" ")[0]=="ARSM":
+                ARSM(conn, data, q)
+        elif data.split(" ")[0]=="BRSM":
+                BRSM(conn, data, q)
+        elif data.split(" ")[0]=="AVSP":
+                AVSP(conn, data, q)
+        elif data.split(" ")[0]=="AREV":
+                AREV(conn, data, q)
+        elif data.split(" ")[0]=="ATRD":
+                ATRD(conn, data)
+        elif data.split(" ")[0]=="TTSS":
+                TTSS(conn, data)
+        elif data.split(" ")[0]=="TTOP":
+                TTOP(conn, data)
+
+
+        elif data.split(" ")[0]=="ARSP":
+                ARSP(conn, data)
+        elif data.split(" ")[0]=="ARST":
+                ARST(conn, data)
+        else:
+            myprint("UNKNOWN PACKAGE:",flush=True)
+            myprint(data,flush=True)
+            pass
+    if not conn._closed:
+        conn.close()
+
 with socket.socket() as serversock:
+    serversock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     serversock.bind((HOST,PORT))
     serversock.listen()
-    while True:
+    client_id=0
+    while not killer.SHOULD_END:
         conn, addr = serversock.accept() #this is blocking
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,4096*2)
+        client_id = client_id + 1
 
         with conn:
-            myprint(f"New Connection from client {addr}")
+            myprint(f"New Connection from client {addr} - id {client_id}")
             
             myprint("Starting 'measurement' thread for this client to enqueue values")
             q = Queue()
-            p = Process(target=herm_dummy_value_gen, args=(q,))
+            p = Process(target=herm_dummy_value_gen, args=(q,killer))
             p.start()
 
-            while True and not conn._closed and not conn.fileno()==-1:
-                data = readMsg(conn)
-                if data.split(" ")[0]=="SYID":
-                        SYID(conn)
-                elif data.split(" ")[0]=="SYSN":
-                        SYSN(conn)
-                elif data.split(" ")[0]=="SYBP":
-                        SYBP(conn)
-                elif data.split(" ")[0]=="ARBM":
-                        ARBM(conn, data)
-                elif data.split(" ")[0]=="ARGR":
-                        ARGR(conn, data)
-                elif data.split(" ")[0]=="ARCL":
-                        ARCL(conn, data)
-                elif data.split(" ")[0]=="ARXR":
-                        ARXR(conn, data)
-                elif data.split(" ")[0]=="ARSS":
-                        ARSS(conn, data)
-                elif data.split(" ")[0]=="AVTS":
-                        AVTS(conn, data)
-                elif data.split(" ")[0]=="AVSS":
-                        AVSS(conn, data, q)
-                elif data.split(" ")[0]=="AVDF":
-                        AVDF(conn, data)
-                elif data.split(" ")[0]=="AVRD":
-                        AVRD(conn, data, q)
-                elif data.split(" ")[0]=="AVSL":
-                        AVSL(conn, data, q)
-                elif data.split(" ")[0]=="ARSM":
-                        ARSM(conn, data, q)
-                elif data.split(" ")[0]=="BRSM":
-                        BRSM(conn, data, q)
-                elif data.split(" ")[0]=="AVSP":
-                        AVSP(conn, data, q)
-                elif data.split(" ")[0]=="AREV":
-                        AREV(conn, data, q)
-                elif data.split(" ")[0]=="ATRD":
-                        ATRD(conn, data)
-                elif data.split(" ")[0]=="TTSS":
-                        TTSS(conn, data)
-                elif data.split(" ")[0]=="TTOP":
-                        TTOP(conn, data)
+            p2 = Process(target=InstrumentClient,args=(conn,q,killer,client_id))
+            p2.start()
 
-
-                elif data.split(" ")[0]=="ARSP":
-                        ARSP(conn, data)
-                elif data.split(" ")[0]=="ARST":
-                        ARST(conn, data)
-                else:
-                    myprint("UNKNOWN PACKAGE:",flush=True)
-                    myprint(data,flush=True)
-                    pass
+    serversock.shutdown(socket.SHUT_RDWR)
+    serversock.close()
+    print("END!")

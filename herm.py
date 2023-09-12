@@ -1,6 +1,7 @@
 import serial
 import time
 import os
+import datetime
 
 def readUntil(ser,stop):
     buf = ""
@@ -13,7 +14,7 @@ def parseLine(line):
 
 def persistValue(val):
     with open("/mnt/berthold/tmp","w") as f:
-        f.write(str(val))
+        f.write(str(int(val)))
     os.rename("/mnt/berthold/tmp","/mnt/berthold/latest")
     with open("/mnt/berthold/tmp_timestamp","w") as f:
         f.write(str(datetime.datetime.now().timestamp()))
@@ -57,7 +58,9 @@ with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:
     time.sleep(0.5)
     while True:
         line = readUntil(ser,"\r\n") #headerzeile ignorieren
+        if 'signal' in line or 'Status' in line:
+            continue
         #print(line)
+        print(line,flush=True)
         cts = parseLine(line)[2]
         persistValue(cts)
-        print(line,flush=True)
