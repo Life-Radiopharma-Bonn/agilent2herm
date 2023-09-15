@@ -222,10 +222,10 @@ def TTSS(conn,data):
                 delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
                 HEADER = """TTSS """+data.split(" ")[1]+""", RUNNING, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
             else:
-                RUN_STOPTIME=datetime.datetime.now()
-                delta = int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000)
-                HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
-                READY_STATE = "ARSS NOT_READY, 14\n"
+                HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, """+str(METHODENLAUFZEIT+30)+""", """+str(METHODENLAUFZEIT)+"""\n"""
+                if RUN_STOPTIME == -1:
+                    RUN_STOPTIME=datetime.datetime.now()
+                    READY_STATE = "ARSS NOT_READY, 14\n"
 
         
     else:
@@ -245,13 +245,10 @@ def TTSS(conn,data):
     myprint(f"Sending TTSS {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
-ARXR_COUNTER=-1
 
 def ARXR(conn,data):
     #ARSP(conn,data)
     myprint(f"Received ARXR",flush=True)
-    global ARXR_COUNTER
-    ARXR_COUTNER=0
 
 
 def AVRD(conn,data,q):
@@ -301,14 +298,15 @@ def AREV(conn,data,q):
     global START
     HEADER = ""
     if RUNNING:
-        if (datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000 >= METHODENLAUFZEIT:
-            RUN_STOPTIME = datetime.datetime.now()
+        #if (datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000 >= METHODENLAUFZEIT and METHODENLAUFZEIT != -1:
+            #if RUN_STOPTIME == -1:
+        #        RUN_STOPTIME = datetime.datetime.now()
             #RUNNING=False
         delta = str(int((RUN_STARTTIME-START).total_seconds()*1000))
         if RUN_STOPTIME == -1:
             HEADER = "AREV HOST, "+str(delta)+", 223; NONE\n"
         else:
-            HEADER = "AREV HOST, "+str(delta)+", 223; HOST, "+str(int((RUN_STOPTIME-RUN_STARTTIME).total_seconds()*1000))+", 223\n"
+            HEADER = "AREV HOST, "+str(delta)+", 223; HOST, "+str(int((RUN_STOPTIME-START).total_seconds()*1000))+", 223\n"
     else:
         HEADER = "AREV NONE; NONE\n"
 
@@ -336,6 +334,7 @@ def ARSP(conn,data):
     global RUN_STARTTIME
     global RUN_STOPTIME
     global METHODENLAUFZEIT
+    myprint(f"Received ARSP - {data}",flush=True)
 
     if RUNNING==True:
         myprint("_______________",flush=True)
@@ -352,12 +351,19 @@ def ARSP(conn,data):
 def ARGR(conn,data):
     """Channel A Get Ready"""
     global READY_STATE
+    global METHODENLAUFZEIT
+    global RUN_STARTTIME
+    global RUN_STOPTIME
     global RUNNING
     if READY_STATE != "":
         myprint("Received ARGR - setting ready-state from "+READY_STATE+" to \"\"")
         READY_STATE=""
         if RUNNING:
             myprint("STOPPING RUN!",flush=True)
+            RUN_STARTTIME=-1
+            RUN_STOPTIME=-1
+            METHODENLAUFZEIT=-1
+            RUNNING=False
 
 
 def ARCL(conn,data):
