@@ -4,6 +4,8 @@ Description=Herm Service
 [Service]
 Type=simple
 ExecStart=python3 /lrp/herm.py
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

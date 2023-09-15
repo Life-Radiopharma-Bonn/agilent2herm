@@ -4,6 +4,7 @@ Description=Agilent 39500 Telnet Service
 [Service]
 Type=simple
 ExecStart=python3 /lrp/instrument.py
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
