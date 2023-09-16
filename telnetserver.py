@@ -1,7 +1,7 @@
 import socket
 import time
 
-HOST = "10.1.10.101"
+HOST = "0.0.0.0"
 SUBNET_MASK="255.255.255.0"
 GATEWAY="10.1.10.1"
 PORT = 23 # this needs to be 23 since agilent expects tehre to be a client
@@ -45,7 +45,8 @@ def slashCommand(conn):
     RESPONSE = RESPONSE + "Firmware Rev.: E.02.04.32\r\n"
     RESPONSE = RESPONSE + "MAC Address: 00:aa:bb:cc:dd:ee\r\n"
     RESPONSE = RESPONSE + "Config By: USER SPECIFIED\r\n\r\n"
-    RESPONSE = RESPONSE + "IP Address: "+HOST+"\r\n"
+    ip,host = conn.getsockname()
+    RESPONSE = RESPONSE + "IP Address: "+ip+"\r\n"
     RESPONSE = RESPONSE + "Subnet Mask: "+SUBNET_MASK+"\r\n"
     RESPONSE = RESPONSE + "Default Gateway: "+GATEWAY+"\r\n"
     RESPONSE = RESPONSE + "DHCP Config: Disabled\r\n"
