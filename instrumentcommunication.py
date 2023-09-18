@@ -2,43 +2,55 @@ import socket
 import time
 import random
 import datetime
-import inotify.adapters
 import math
 
 from multiprocessing import Process, Queue
 from enum import Enum
 import signal
+from socket import socket
+
+
 class ProcessKiller:
     SHOULD_END = False
-    def exit_gracefully(self,*args):
+
+    def exit_gracefully(self, *args):
         print("RECEIVED STOP SIGNAL - PREPARING TO END")
-        self.SHOULD_END=True
+        self.SHOULD_END = True
 
     def __init__(self):
-        print("Setting up process killer for sigint and sigterm",flush=True)
-        signal.signal(signal.SIGINT,self.exit_gracefully)
-        #signal.signal(signal.SIGTERM,self.exit_gracefully)
+        print("Setting up process killer for sigint and sigterm", flush=True)
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        # signal.signal(signal.SIGTERM,self.exit_gracefully)
+
+
+class InstrumentState(Enum):
+    IDLE = 0
+    PRERUN = 1
+    RUN = 2
+    POSTRUN = 3
+
 
 HOST = "0.0.0.0"
-PORT = 9100 # this needs to be 23 since agilent expects tehre to be a client
+PORT = 9100  # 9100 for the instrment communication, 23 for the telnet service
 FAKTOR = 1000000.0
 
-START = datetime.datetime.now()
-DEBUG=True
+START = datetime.datetime.now()  # this is the start time of the instrument
+DEBUG = True
 killer = ProcessKiller()
-
 
 READY_STATE = ""
 RUNNING = False
 
 METHODENLAUFZEIT = -1
-RUN_STARTTIME=datetime.datetime.now()
-RUN_STOPTIME=-1
+RUN_STARTTIME = datetime.datetime.now()
+RUN_STOPTIME = -1
 
-def myprint(msg,flush=True):
+
+def myprint(msg, flush=True):
     global DEBUG
     if DEBUG:
-        print(msg,flush=flush)
+        print(msg, flush=flush)
+
 
 def readMsg(conn):
     buf = ""
@@ -46,12 +58,13 @@ def readMsg(conn):
         tmp = conn.recv(1)
         if tmp == b'\x0a':
             break
-        #myprint(f"{tmp}" + " " + str(tmp))
+        # myprint(f"{tmp}" + " " + str(tmp))
         buf = buf + tmp.decode("ascii")
-        #myprint(f"buffer: {buf}")
-        #myprint(f"buffer: {buf}")
+        # myprint(f"buffer: {buf}")
+        # myprint(f"buffer: {buf}")
     myprint(f"buffer: {buf}")
-    return buf.strip() #nur trimmed strings zurückgeben
+    return buf.strip()  # nur trimmed strings zurückgeben
+
 
 def SYID(conn):
     """Returns the System ID
@@ -59,8 +72,9 @@ def SYID(conn):
     Resp: "SYID HP35900E, Rev E.02.04.32\\n"
     """
     HEADER = """SYID HP35900E, Rev E.02.04.32\n""".encode("ascii")
-    myprint(f"Sending SYID {HEADER}",flush=True)
+    myprint(f"Sending SYID {HEADER}", flush=True)
     conn.sendall(HEADER)
+
 
 def SYSN(conn):
     """Returns the System Serial Number
@@ -69,30 +83,24 @@ def SYSN(conn):
     Resp: "SYSN XXXXXXXXXXX\\n"
     """
     HEADER = """SYSN LIFERADIO1\n""".encode("ascii")
-    myprint(f"Sending SYSN {HEADER}",flush=True)
+    myprint(f"Sending SYSN {HEADER}", flush=True)
     conn.sendall(HEADER)
 
-def SYBP(conn):
-    myprint(f"Received SYBP - no answer",flush=True)
 
-def ARBM(conn,data):
+def ARBM(conn, data):
     """Channel A Request Button Mode
 
     Req: "ARBM ?\\n"
     Resp:"ARBM OFF, OFF\\n"
     """
-    myprint(f"Sending ARBM {data}",flush=True)
+    myprint(f"Sending ARBM {data}", flush=True)
     result = ""
-    #if data.split(" ")[1] == "?":
+    # if data.split(" ")[1] == "?":
     result = "ARBM OFF, OFF\n"
     conn.sendall(result.encode("ascii"))
 
-def AVTS(conn,data):
-    #HEADER = """ARLM SYSTEM\nARGR\nTTDL AXPRE\nTTDL AXINTO\nTTDL AXPOST\nTTCR AXPRE, HOST_CMD\nTTCR AXINTO, AR_START\nTTCR AXPOST, AR_STOP\nTTOP AXPRE, 0; SYNO\nTTOP AXINTO, 0; TTSP AXPRE\nTTOP AXINTO, 0; TTDS AXPRE\nTTOP AXPOST, 0; TTSP AXINTO\nTTOP AXPOST, 0; TTDS AXINTO\nTTEN AXPRE\nTTEN AXINTO\nTTEN AXPOST\n"""
-    myprint(f"Received AVTS - not responding",flush=True)
-    #conn.sendall(HEADER.encode("ascii"))
 
-def ARSS(conn,data):
+def ARSS(conn, data):
     """Channel A RUN SYSTEM STATE
     Requests the current system state regarding a run.
 
@@ -127,21 +135,24 @@ def ARSS(conn,data):
     global READY_STATE
     HEADER = ""
     if RUNNING:
-        delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds())
+        delta = int((datetime.datetime.now() - RUN_STARTTIME).total_seconds())
         if READY_STATE == "":
             HEADER = """ARSS RUN, 5\n"""
     else:
         HEADER = """ARSS READY, 0\n"""
-        print(HEADER,flush=True)
+        print(HEADER, flush=True)
 
     if READY_STATE != "":
         HEADER = READY_STATE
 
-    myprint(f"Sending ARSS {HEADER}",flush=True)
+    myprint(f"Sending ARSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
-AVSSc=0
-def AVSS(conn,data,q):
+
+number_of_items_request = 0
+
+
+def AVSS(conn, data, q):
     """Returns the Channel A Value and System State
     
     Requests always look like
@@ -160,22 +171,23 @@ def AVSS(conn,data,q):
 
     The Switch between ON and OFF only seems to be used after an acquisition.
     """
-    global AVSSc
+    global number_of_items_request
     global START
     global RUNNING
     global READY_STATE
-    delta = str(int((datetime.datetime.now()-START).total_seconds()*1000))
+    delta = str(int((datetime.datetime.now() - START).total_seconds() * 1000))
     state = "0"
     if RUNNING:
-        state="5"
+        state = "5"
     if not RUNNING and READY_STATE != "":
-        state="14"
-    HEADER = """AVSS ON, """+state+""", 5, """+str(min(q.qsize(),9))+""", """ + delta + """\n"""
-    #HEADER = """AVSS ON, 0, 5, 2, """ + delta + """\n"""
-    myprint(f"Sending AVSS {HEADER}",flush=True)
+        state = "14"
+    HEADER = """AVSS ON, """ + state + """, 5, """ + str(min(q.qsize(), 9)) + """, """ + delta + """\n"""
+    # HEADER = """AVSS ON, 0, 5, 2, """ + delta + """\n"""
+    myprint(f"Sending AVSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
-def TTSS(conn,data):
+
+def TTSS(conn, data):
     """Method to request current TimeTable (TT) System Status(SS)
     The possible States are
     AXPRE
@@ -211,47 +223,50 @@ def TTSS(conn,data):
     global RUN_STOPTIME
     global METHODENLAUFZEIT
     global READY_STATE
-    HEADER=""
-    myprint("TTSS"+data+"\tRUNNING:"+str(RUNNING)+"\tRUN_STARTTIME:"+str(RUN_STARTTIME)+"\tMETHODENLAUFZEIT:"+str(METHODENLAUFZEIT))
-    if data.split(" ")[1]=="AXINTO":
+    HEADER = ""
+    myprint("TTSS" + data + "\tRUNNING:" + str(RUNNING) + "\tRUN_STARTTIME:" + str(
+        RUN_STARTTIME) + "\tMETHODENLAUFZEIT:" + str(METHODENLAUFZEIT))
+    if data.split(" ")[1] == "AXINTO":
         if not RUNNING:
-            HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
+            HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
         else:
-            #delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
-            if int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000) < METHODENLAUFZEIT:
-                delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
-                HEADER = """TTSS """+data.split(" ")[1]+""", RUNNING, """+str(delta)+""", """+str(METHODENLAUFZEIT)+"""\n"""
+            # delta = int((datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000)
+            if int((datetime.datetime.now() - RUN_STARTTIME).total_seconds() * 1000) < METHODENLAUFZEIT:
+                delta = int((datetime.datetime.now() - RUN_STARTTIME).total_seconds() * 1000)
+                HEADER = """TTSS """ + data.split(" ")[1] + """, RUNNING, """ + str(delta) + """, """ + str(
+                    METHODENLAUFZEIT) + """\n"""
             else:
-                HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, """+str(METHODENLAUFZEIT+30)+""", """+str(METHODENLAUFZEIT)+"""\n"""
+                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, """ + str(
+                    METHODENLAUFZEIT + 30) + """, """ + str(METHODENLAUFZEIT) + """\n"""
                 if RUN_STOPTIME == -1:
-                    RUN_STOPTIME=datetime.datetime.now()
+                    RUN_STOPTIME = datetime.datetime.now()
                     READY_STATE = "ARSS NOT_READY, 14\n"
 
-        
+
     else:
         if not RUNNING:
-            HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
+            HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
         else:
-            if data.split(" ")[1]=="AXPRE":
-                HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, -1, 0\n"""
+            if data.split(" ")[1] == "AXPRE":
+                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
             else:
-                HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
-            
-            if data.split(" ")[1]=="AXPOST":
-                HEADER = """TTSS """+data.split(" ")[1]+""", ENABLED, -1, 0\n"""
-                if RUN_STOPTIME != -1:
-                    HEADER = """TTSS """+data.split(" ")[1]+""", DISABLED, 15, 0\n"""
+                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
 
-    myprint(f"Sending TTSS {HEADER}",flush=True)
+            if data.split(" ")[1] == "AXPOST":
+                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
+                if RUN_STOPTIME != -1:
+                    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
+
+    myprint(f"Sending TTSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
 
-def ARXR(conn,data):
-    #ARSP(conn,data)
-    myprint(f"Received ARXR",flush=True)
+def ARXR(conn, data):
+    # ARSP(conn,data)
+    myprint(f"Received ARXR", flush=True)
 
 
-def AVRD(conn,data,q):
+def AVRD(conn, data, q):
     """Channel A Value Read - Returns X items from the Instrument Queue
     
     Example:
@@ -262,19 +277,20 @@ def AVRD(conn,data,q):
 
     Any number must be 8 bytes
     """
-    global AVSSc
-    qsize = AVSSc
+    global number_of_items_request
+    qsize = number_of_items_request
 
-    HEADER = """AVRD HEX, 00"""+str(qsize)+""";"""
-    for i in range(0,qsize):
-        val_str = str(hex(encodeWert(q.get()))[2:]).upper().zfill(8)
+    HEADER = """AVRD HEX, 00""" + str(qsize) + """;"""
+    for i in range(0, qsize):
+        val_str = str(hex(encode_value(q.get()))[2:]).upper().zfill(8)
         HEADER = HEADER + val_str
     HEADER = HEADER + "\n"
-    myprint(f"Sending AVRD {HEADER}",flush=True)
+    myprint(f"Sending AVRD {HEADER}", flush=True)
     myprint(str(HEADER.encode("ascii")) + "\t" + str(len(str(HEADER.encode("ascii")))))
     conn.sendall(HEADER.encode("ascii"))
 
-def AREV(conn,data,q):
+
+def AREV(conn, data, q):
     """Channel A REference Value
     
     Default:
@@ -298,57 +314,61 @@ def AREV(conn,data,q):
     global START
     HEADER = ""
     if RUNNING:
-        #if (datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000 >= METHODENLAUFZEIT and METHODENLAUFZEIT != -1:
-            #if RUN_STOPTIME == -1:
+        # if (datetime.datetime.now()-RUN_STARTTIME).total_seconds()*1000 >= METHODENLAUFZEIT and METHODENLAUFZEIT != -1:
+        # if RUN_STOPTIME == -1:
         #        RUN_STOPTIME = datetime.datetime.now()
-            #RUNNING=False
-        delta = str(int((RUN_STARTTIME-START).total_seconds()*1000))
+        # RUNNING=False
+        delta = str(int((RUN_STARTTIME - START).total_seconds() * 1000))
         if RUN_STOPTIME == -1:
-            HEADER = "AREV HOST, "+str(delta)+", 223; NONE\n"
+            HEADER = "AREV HOST, " + str(delta) + ", 223; NONE\n"
         else:
-            HEADER = "AREV HOST, "+str(delta)+", 223; HOST, "+str(int((RUN_STOPTIME-START).total_seconds()*1000))+", 223\n"
+            HEADER = "AREV HOST, " + str(delta) + ", 223; HOST, " + str(
+                int((RUN_STOPTIME - START).total_seconds() * 1000)) + ", 223\n"
     else:
         HEADER = "AREV NONE; NONE\n"
 
-    myprint(f"Sending AREV {HEADER}",flush=True)
+    myprint(f"Sending AREV {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
-def AVDF(conn,data):
+
+def AVDF(conn, data):
     """Prepares the Data to be transmitted in the next AVRD request.
     The Number of items will be parsed out of the AVSS Packet
 
     Req: AVDF\\n
     --NO RESPONSE--"""
-    global AVSSc
-    AVSSc = int(data.split(" ")[2])
-    #KEINE ANTWORT
+    global number_of_items_request
+    number_of_items_request = int(data.split(" ")[2])
+    # KEINE ANTWORT
 
-def ARSP(conn,data):
+
+def ARSP(conn, data):
     """Channel A Run STOP
 
     Req: "ARSP\\n"
     NO RESPONSE
     """
-    #STOP command
+    # STOP command
     global RUNNING
     global RUN_STARTTIME
     global RUN_STOPTIME
     global METHODENLAUFZEIT
-    myprint(f"Received ARSP - {data}",flush=True)
+    myprint(f"Received ARSP - {data}", flush=True)
 
-    if RUNNING==True:
-        myprint("_______________",flush=True)
-        myprint("!RUNNING=FALSE!",flush=True)
-        myprint("_______________",flush=True)
-        RUNNING=False
-        RUN_STARTTIME=-1
-        RUN_STOPTIME=-1
-        METHODENLAUFZEIT=-1
-    #KEINE ANTWORT
+    if RUNNING == True:
+        myprint("_______________", flush=True)
+        myprint("!RUNNING=FALSE!", flush=True)
+        myprint("_______________", flush=True)
+        RUNNING = False
+        RUN_STARTTIME = -1
+        RUN_STOPTIME = -1
+        METHODENLAUFZEIT = -1
+    # KEINE ANTWORT
 
-    #KEINE ANTWORT
+    # KEINE ANTWORT
 
-def ARGR(conn,data):
+
+def ARGR(conn, data):
     """Channel A Get Ready"""
     global READY_STATE
     global METHODENLAUFZEIT
@@ -356,57 +376,45 @@ def ARGR(conn,data):
     global RUN_STOPTIME
     global RUNNING
     if READY_STATE != "":
-        myprint("Received ARGR - setting ready-state from "+READY_STATE+" to \"\"")
-        READY_STATE=""
+        myprint("Received ARGR - setting ready-state from " + READY_STATE + " to \"\"")
+        READY_STATE = ""
         if RUNNING:
-            myprint("STOPPING RUN!",flush=True)
-            RUN_STARTTIME=-1
-            RUN_STOPTIME=-1
-            METHODENLAUFZEIT=-1
-            RUNNING=False
+            myprint("STOPPING RUN!", flush=True)
+            RUN_STARTTIME = -1
+            RUN_STOPTIME = -1
+            METHODENLAUFZEIT = -1
+            RUNNING = False
 
 
-def ARCL(conn,data):
-    #KEINE ANTWORT
-    myprint("Received ARCL")
-    #RUNNING = True
-    #RUN_STARTTIME=datetime.datetime.now()
-    #ARSP(conn,data)
-    pass
-
-def TTOP(conn,data):
+def TTOP(conn, data):
     global METHODENLAUFZEIT
     inp = data.split(" ")
-    if inp[1]=="AXINTO,":
+    if inp[1] == "AXINTO,":
         METHODENLAUFZEIT = int(inp[2].split(";")[0])
-        myprint("Received AXINTO - planned runtime:"+str(METHODENLAUFZEIT),flush=True)
-    #KEINE ANTWORT
+        myprint("Received AXINTO - planned runtime:" + str(METHODENLAUFZEIT), flush=True)
+    # KEINE ANTWORT
     pass
 
-def TTEN(conn,data):
-    global RUNNING
-    myprint("Received TTEN"+data,flush=True)
-    #KEINE ANTWORT
-    pass
 
-def ARST(conn,data):
+def ARST(conn, data):
     """Channel A RUN START
     Req: "ARST\\n"
     NO RESPONSE
     """
     global RUNNING
     global RUN_STARTTIME
-    myprint("Received ARST COMMAND "+data,flush=True)
-    if RUNNING==False:
+    myprint("Received ARST COMMAND " + data, flush=True)
+    if RUNNING == False:
         RUNNING = True
-        RUN_STARTTIME=datetime.datetime.now()
-        myprint("_______________",flush=True)
-        myprint("!RUNNING=TRUE!!",flush=True)
-        myprint("_______________",flush=True)
-    #KEINE ANTWORT
+        RUN_STARTTIME = datetime.datetime.now()
+        myprint("_______________", flush=True)
+        myprint("!RUNNING=TRUE!!", flush=True)
+        myprint("_______________", flush=True)
+    # KEINE ANTWORT
     pass
 
-def ATRD(conn,data):
+
+def ATRD(conn, data):
     """Seems to be Either
     - Basic PING/PONG functionality
     or
@@ -415,63 +423,55 @@ def ATRD(conn,data):
     We will answer statically with 255 here, which seems to be an "alright on our end"
     """
     HEADER = """ATRD 255\n"""
-    #myprint(f"Sending ATRD(1) {HEADER}",flush=True)
     conn.sendall(HEADER.encode("ascii"))
-    
-def AVSL(conn,data,q):
+
+
+def AVSL(conn, data, q):
     """Channel A Value SampLing (AVSL)
     This either requests or sets the current sampling rate"""
     i = data.split(" ")[1]
+
+    # this is a request - lets answer with "AVSL 1000\n" (=1Hz)
     if i == "?":
         HEADER = """AVSL 1000\n"""
-        #myprint(f"Sending AVSL {HEADER}",flush=True)
         conn.sendall(HEADER.encode("ascii"))
-    else:
-        pass
-        #myprint(f"Received AVSL {data}",flush=True)
-        #time.sleep(1)
-    #AVRD(conn,data,q)
-
-def ARSM(conn,data,q):
-    myprint(f"Received "+data,flush=True)
-def BRSM(conn,data,q):
-    myprint(f"Received "+data,flush=True)
-def AVSP(conn,data,q):
-    myprint(f"Received "+data,flush=True)
 
 
-def encodeWert(inp):
+def encode_value(inp: int) -> int:
     ###nimmt einen wert (inp) entgegen und encoded ihn so, dass auf agilent-seite der wert so ankommt.
-    #return int(((((inp+4)/FAKTOR) + 0.02281)/1e-8))
+    # return int(((((inp+4)/FAKTOR) + 0.02281)/1e-8))
 
-    #clippen am unteren ende
+    # clippen am unteren ende
     mod_inp = inp
     if inp < 0:
-        mod_inp=0
+        mod_inp = 0
         return 0
-    #minimalen wert auf 0 setzen
-    #damit erzeugen wir einen negativen wert am unteren ende. 
-    #hoffentlich können wir damit fehler schneller erkennen, da wir keinen echten Status setzen können.
+    # minimalen wert auf 0 setzen
+    # damit erzeugen wir einen negativen wert am unteren ende.
+    # hoffentlich können wir damit fehler schneller erkennen, da wir keinen echten Status setzen können.
 
-    return min(int(((((mod_inp)/FAKTOR) + 0.02285)/1e-8)),4294967295) #0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
+    return min(int(((((mod_inp) / FAKTOR) + 0.02285) / 1e-8)),
+               4294967295)  # 0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
 
-def herm_dummy_value_gen(q,killer):
+
+def herm_dummy_value_gen(q, killer):
     myprint("starting herm dummy value gen")
 
     def readFromFile():
         global INSTRUMENT_STATUS
         try:
             line = ""
-            with open("/mnt/berthold/latest","r") as f:
+            with open("/mnt/berthold/latest", "r") as f:
                 line = f.read()
             return line.strip()
         except:
-            INSTRUMENT_STATUS="NOT_READY, 130"
+            INSTRUMENT_STATUS = "NOT_READY, 130"
             return -1
-    #i = inotify.adapters.Inotify()
-    #i.add_watch("/mnt/berthold/latest")
 
-    #while True:
+    # i = inotify.adapters.Inotify()
+    # i.add_watch("/mnt/berthold/latest")
+
+    # while True:
     #    events = i.event_gen(yield_nones=False, timeout_s=1)
     #    events = list(events)
     #    print(events)
@@ -485,17 +485,18 @@ def herm_dummy_value_gen(q,killer):
     #        myprint("No data from HERM")
     #        q.put(-100)
 
-    time.sleep(3) #ungefähr 6 sekunden dauert die inistialisierung des UIB2, daher bringen wir so die Signale übereinander
-    
+    time.sleep(
+        3)  # ungefähr 6 sekunden dauert die inistialisierung des UIB2, daher bringen wir so die Signale übereinander
+
     start_time = datetime.datetime.now()
     iteration = 0
 
     while not killer.SHOULD_END:
-        myprint("herm side qsize: " +str(q.qsize()))
+        myprint("herm side qsize: " + str(q.qsize()))
         if q.qsize() > 100:
             print("client seems gone - dieing this thread")
             break
-        #if readTimestampDeltaFromFile():
+        # if readTimestampDeltaFromFile():
         #    myprint("Valid value from herm received in the past 2s",flush=True)
         buf = ""
         while buf == "":
@@ -504,121 +505,140 @@ def herm_dummy_value_gen(q,killer):
             except:
                 pass
         q.put(int(buf))
-        #else:
+        # else:
         #    myprint("!NO VALID VALUE FROM HERM - SENDING DUMMY NEGATIVE VALUE",flush=True)
         #    q.put(-1)
-        
-        tmp_time = datetime.datetime.now()
-        delta = tmp_time-start_time
-        to_sleep = delta.total_seconds()
-        iteration = iteration+1
 
-        for i in range(0,int(to_sleep-iteration)):
-            iteration = iteration+1
+        tmp_time = datetime.datetime.now()
+        delta = tmp_time - start_time
+        to_sleep = delta.total_seconds()
+        iteration = iteration + 1
+
+        for i in range(0, int(to_sleep - iteration)):
+            iteration = iteration + 1
             q.put(int(buf))
             print(f"discrepancy between {to_sleep} and {iteration} putting additional data:{i}")
             if iteration % 8505 == 0:
                 print(f"discrepancy 8505 step second without increasing iterations counter")
                 q.put(int(buf))
 
-        #if iteration < 15:
+        # if iteration < 15:
         #    time.sleep(1.0)
-        #else:
+        # else:
         #    #1.0022380
         #    avg_sleep = to_sleep/iteration - 1.0
         #    time.sleep(1.00-avg_sleep)
         #    print(f"{avg_sleep} avg-sleep")
         time.sleep(1.0)
 
-class VirtualInstrument():
-    """A simple class for emulating the communcations protocol of an Agilent/HP 35900 Series II"""
 
-    class InstrumentState(Enum):
-        IDLE = 0
-        PRERUN = 1
-        RUN = 2
-        POSTRUN = 3
+class VirtualInstrument:
+    """A simple class for emulating the communications protocol of an Agilent/HP 35900E Series II"""
 
-    state = InstrumentState.IDLE
+    def __init__(self):
+        self.state = InstrumentState.IDLE
+        self.start_time = datetime.datetime.now()
+        self.run_start_time = -1
+        self.run_stop_time = -1
+        self.method_runtime = -1
 
-def InstrumentClient(conn,q,killer,client_id):
-    while not killer.SHOULD_END and not conn._closed and not conn.fileno()==-1:
-        print(f"[{client_id}]KILLER:"+str(killer.SHOULD_END),flush=True)
-        data = readMsg(conn)
-        if data.split(" ")[0]=="SYID":
-                SYID(conn)
-        elif data.split(" ")[0]=="SYSN":
-                SYSN(conn)
-        elif data.split(" ")[0]=="SYBP":
-                SYBP(conn)
-        elif data.split(" ")[0]=="ARBM":
-                ARBM(conn, data)
-        elif data.split(" ")[0]=="ARGR":
-                ARGR(conn, data)
-        elif data.split(" ")[0]=="ARCL":
-                ARCL(conn, data)
-        elif data.split(" ")[0]=="ARXR":
-                ARXR(conn, data)
-        elif data.split(" ")[0]=="ARSS":
-                ARSS(conn, data)
-        elif data.split(" ")[0]=="AVTS":
-                AVTS(conn, data)
-        elif data.split(" ")[0]=="AVSS":
-                AVSS(conn, data, q)
-        elif data.split(" ")[0]=="AVDF":
-                AVDF(conn, data)
-        elif data.split(" ")[0]=="AVRD":
-                AVRD(conn, data, q)
-        elif data.split(" ")[0]=="AVSL":
-                AVSL(conn, data, q)
-        elif data.split(" ")[0]=="ARSM":
-                ARSM(conn, data, q)
-        elif data.split(" ")[0]=="BRSM":
-                BRSM(conn, data, q)
-        elif data.split(" ")[0]=="AVSP":
-                AVSP(conn, data, q)
-        elif data.split(" ")[0]=="AREV":
-                AREV(conn, data, q)
-        elif data.split(" ")[0]=="ATRD":
-                ATRD(conn, data)
-        elif data.split(" ")[0]=="TTSS":
-                TTSS(conn, data)
-        elif data.split(" ")[0]=="TTOP":
-                TTOP(conn, data)
+    def abort_run(self):
+        self.method_runtime = -1
+        self.run_stop_time = -1
+        self.run_start_time = -1
+        self.state = InstrumentState.IDLE
 
+    def start_run(self):
+        if self.state == InstrumentState.IDLE:
+            self.state = InstrumentState.PRERUN
+            return
 
-        elif data.split(" ")[0]=="ARSP":
-                ARSP(conn, data)
-        elif data.split(" ")[0]=="ARST":
-                ARST(conn, data)
+        if self.state == InstrumentState.PRERUN:
+            self.state = InstrumentState.RUN
+            self.run_start_time = datetime.datetime.now()
+            return
+
+    def get_method_runtime_elapsed_ms(self):
+        return int((datetime.datetime.now() - self.start_time).total_seconds() * 1000)
+
+    def is_running(self):
+        if self.get_method_runtime_elapsed_ms() < self.method_runtime:
+            return True
         else:
-            myprint("UNKNOWN PACKAGE:",flush=True)
-            myprint(data,flush=True)
-            pass
+            if self.run_stop_time == -1:
+                self.run_stop_time = datetime.datetime.now()
+            return False
+
+    def set_method_runtime(self, runtime):
+        self.method_runtime = runtime
+
+
+def InstrumentClient(conn, q, killer, client_id):
+    while not killer.SHOULD_END and not conn._closed and not conn.fileno() == -1:
+        print(f"[{client_id}]KILLER:" + str(killer.SHOULD_END), flush=True)
+        data = readMsg(conn)
+        if data.split(" ")[0] == "SYID":
+            SYID(conn)
+        elif data.split(" ")[0] == "SYSN":
+            SYSN(conn)
+        elif data.split(" ")[0] == "ARBM":
+            ARBM(conn, data)
+        elif data.split(" ")[0] == "ARGR":
+            ARGR(conn, data)
+        elif data.split(" ")[0] == "ARXR":
+            ARXR(conn, data)
+        elif data.split(" ")[0] == "ARSS":
+            ARSS(conn, data)
+        elif data.split(" ")[0] == "AVSS":
+            AVSS(conn, data, q)
+        elif data.split(" ")[0] == "AVDF":
+            AVDF(conn, data)
+        elif data.split(" ")[0] == "AVRD":
+            AVRD(conn, data, q)
+        elif data.split(" ")[0] == "AVSL":
+            AVSL(conn, data, q)
+        elif data.split(" ")[0] == "AREV":
+            AREV(conn, data, q)
+        elif data.split(" ")[0] == "ATRD":
+            ATRD(conn, data)
+        elif data.split(" ")[0] == "TTSS":
+            TTSS(conn, data)
+        elif data.split(" ")[0] == "TTOP":
+            TTOP(conn, data)
+        elif data.split(" ")[0] == "ARSP":
+            ARSP(conn, data)
+        elif data.split(" ")[0] == "ARST":
+            ARST(conn, data)
+        else:
+            myprint("UNKNOWN / UNUSED PACKET:", flush=True)
+            myprint(data, flush=True)
     if not conn._closed:
         conn.close()
 
-with socket.socket() as serversock:
-    serversock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    serversock.bind((HOST,PORT))
-    serversock.listen()
-    client_id=0
+
+vi = VirtualInstrument()  # create this only once, this will be controlled by all the incoming commands
+server_sock: socket
+with socket.socket() as server_sock:
+    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_sock.bind((HOST, PORT))
+    server_sock.listen()
+    client_id = 0
     while not killer.SHOULD_END:
-        conn, addr = serversock.accept() #this is blocking
-        conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,4096*2)
+        conn, addr = server_sock.accept()  # this is blocking
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096 * 2)
         client_id = client_id + 1
 
         with conn:
             myprint(f"New Connection from client {addr} - id {client_id}")
-            
+
             myprint("Starting 'measurement' thread for this client to enqueue values")
             q = Queue()
-            p = Process(target=herm_dummy_value_gen, args=(q,killer))
+            p = Process(target=herm_dummy_value_gen, args=(q, killer))
             p.start()
 
-            p2 = Process(target=InstrumentClient,args=(conn,q,killer,client_id))
+            p2 = Process(target=InstrumentClient, args=(conn, q, killer, client_id))
             p2.start()
 
-    serversock.shutdown(socket.SHUT_RDWR)
-    serversock.close()
+    server_sock.shutdown(socket.SHUT_RDWR)
+    server_sock.close()
     print("END!")
