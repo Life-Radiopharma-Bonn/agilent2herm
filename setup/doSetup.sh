@@ -17,6 +17,6 @@ cp ../instrumentcommunication.py /lrp/instrument.py
 cp ../telnetserver.py /lrp/telnetserver.py
 cp ../herm.py /lrp/herm.py
 
-systemctl enable --now telnetserver
-systemctl enable --now herm
-systemctl enable --now instrument
+systemctl enable telnetserver
+systemctl enable herm
+systemctl enable instrument
