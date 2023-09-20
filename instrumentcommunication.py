@@ -7,7 +7,7 @@ import math
 from multiprocessing import Process, Queue
 from enum import Enum
 import signal
-from socket import socket
+
 
 
 class ProcessKiller:
