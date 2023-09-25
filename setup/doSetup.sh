@@ -1,8 +1,13 @@
 #!/bin/bash
 pip3 install pyserial inotify
 cp 99-usbftdi.rules /etc/udev/rules.d/99-usbftdi.rules
+
 cp mountBerthold.sh /etc/mountBerthold.sh
 chmod +x /etc/mountBerthold.sh
+
+cp ../reset_berthold.sh /lrp/reset_berthold.sh
+chmod +x /lrp/set_berthold.sh
+
 mkdir /mnt/berthold
 echo "tmpfs /mnt/berthold	tmpfs	defaults,size=20M	0	0" >> /etc/fstab
 mount -a
@@ -20,3 +25,5 @@ cp ../herm.py /lrp/herm.py
 systemctl enable telnetserver
 systemctl enable herm
 systemctl enable instrument
+
+cat <(crontab -l) <(echo "* * * * * /lrp/reset_berthold.sh") | crontab -
