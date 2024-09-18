@@ -39,6 +39,7 @@ DEBUG = True
 killer = ProcessKiller()
 
 READY_STATE = ""
+NEXT_STATE = ""
 RUNNING = False
 
 METHODENLAUFZEIT = -1
@@ -132,18 +133,31 @@ def ARSS(conn, data):
     """
     global RUNNING
     global RUN_STARTTIME
+    global RUN_STOPTIME
     global READY_STATE
+    global NEXT_STATE
+    global METHODENLAUFZEIT
     HEADER = ""
     if RUNNING:
-        delta = int((datetime.datetime.now() - RUN_STARTTIME).total_seconds())
         if READY_STATE == "":
             HEADER = """ARSS RUN, 5\n"""
     else:
         HEADER = """ARSS READY, 0\n"""
-        print(HEADER, flush=True)
+
 
     if READY_STATE != "":
         HEADER = READY_STATE
+
+    if NEXT_STATE != "":
+        myprint(f"Switching READY_STATE from {READY_STATE} to {NEXT_STATE}", flush=True)
+        READY_STATE = NEXT_STATE
+        NEXT_STATE = ""
+        if READY_STATE == "ARSS NOT_READY, 14\n":
+            RUNNING = False
+            RUN_STARTTIME = -1
+            RUN_STOPTIME = -1
+            METHODENLAUFZEIT = -1
+            NEXT_STATE = "ARSS READY, 0\n"
 
     myprint(f"Sending ARSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -223,6 +237,7 @@ def TTSS(conn, data):
     global RUN_STOPTIME
     global METHODENLAUFZEIT
     global READY_STATE
+    global NEXT_STATE
     HEADER = ""
     myprint("TTSS" + data + "\tRUNNING:" + str(RUNNING) + "\tRUN_STARTTIME:" + str(
         RUN_STARTTIME) + "\tMETHODENLAUFZEIT:" + str(METHODENLAUFZEIT))
@@ -240,7 +255,7 @@ def TTSS(conn, data):
                     METHODENLAUFZEIT + 30) + """, """ + str(METHODENLAUFZEIT) + """\n"""
                 if RUN_STOPTIME == -1:
                     RUN_STOPTIME = datetime.datetime.now()
-                    READY_STATE = "ARSS NOT_READY, 14\n"
+                    NEXT_STATE = "ARSS NOT_READY, 14\n"
 
 
     else:
@@ -353,6 +368,7 @@ def ARSP(conn, data):
     global RUN_STARTTIME
     global RUN_STOPTIME
     global METHODENLAUFZEIT
+    global READY_STATE
     myprint(f"Received ARSP - {data}", flush=True)
 
     if RUNNING == True:
@@ -378,6 +394,7 @@ def ARGR(conn, data):
     if READY_STATE != "":
         myprint("Received ARGR - setting ready-state from " + READY_STATE + " to \"\"")
         READY_STATE = ""
+        return
         if RUNNING:
             myprint("STOPPING RUN!", flush=True)
             RUN_STARTTIME = -1
