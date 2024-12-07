@@ -1,5 +1,5 @@
 #!/bin/bash
-pip3 install pyserial inotify --break-system-packages
+pip3 install pyserial inotify bson pika --break-system-packages
 cp 99-usbftdi.rules /etc/udev/rules.d/99-usbftdi.rules
 mkdir /lrp
 
