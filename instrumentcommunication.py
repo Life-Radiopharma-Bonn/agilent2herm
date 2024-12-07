@@ -224,6 +224,10 @@ def TTSS(conn, data):
     global METHODENLAUFZEIT
     global READY_STATE
     HEADER = ""
+
+    #if READY_STATE == "ARSS NOT_READY, 14\n":
+    #    ARGR(conn, "IMPLICIT GET READY!")
+
     myprint("TTSS" + data + "\tRUNNING:" + str(RUNNING) + "\tRUN_STARTTIME:" + str(
         RUN_STARTTIME) + "\tMETHODENLAUFZEIT:" + str(METHODENLAUFZEIT))
     if data.split(" ")[1] == "AXINTO":
@@ -245,7 +249,11 @@ def TTSS(conn, data):
 
     else:
         if not RUNNING:
-            HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
+            if data.split(" ")[1] == "AXPRE":
+                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
+            else:
+                #AXPOST soll immer disabled sein
+                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
         else:
             if data.split(" ")[1] == "AXPRE":
                 HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
@@ -253,9 +261,9 @@ def TTSS(conn, data):
                 HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
 
             if data.split(" ")[1] == "AXPOST":
-                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
-                if RUN_STOPTIME != -1:
-                    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
+                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
+                #if RUN_STOPTIME != -1:
+                #    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
 
     myprint(f"Sending TTSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -330,6 +338,9 @@ def AREV(conn, data, q):
     myprint(f"Sending AREV {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
 
+    if READY_STATE == "ARSS NOT_READY, 14\n":
+        ARGR(conn, "IMPLICIT GET READY!")
+
 
 def AVDF(conn, data):
     """Prepares the Data to be transmitted in the next AVRD request.
@@ -377,6 +388,7 @@ def ARGR(conn, data):
     global RUNNING
     if READY_STATE != "":
         myprint("Received ARGR - setting ready-state from " + READY_STATE + " to \"\"")
+        myprint(f"ARGR  data "+str(data))
         READY_STATE = ""
         if RUNNING:
             myprint("STOPPING RUN!", flush=True)
@@ -454,7 +466,7 @@ def encode_value(inp: int) -> int:
                4294967295)  # 0xffffffff ist maximum, diesen wert dürfen wir nicht überschreiten sonst gehts kaputt, lieber clippen wir hier
 
 
-def herm_dummy_value_gen(q, killer):
+def herm_dummy_value_gen(conn, q, killer):
     myprint("starting herm dummy value gen")
 
     def readFromFile():
@@ -491,7 +503,7 @@ def herm_dummy_value_gen(q, killer):
     start_time = datetime.datetime.now()
     iteration = 0
 
-    while not killer.SHOULD_END:
+    while not killer.SHOULD_END and is_socket_connected(conn):
         myprint("herm side qsize: " + str(q.qsize()))
         if q.qsize() > 100:
             print("client seems gone - dieing this thread")
@@ -572,9 +584,29 @@ class VirtualInstrument:
     def set_method_runtime(self, runtime):
         self.method_runtime = runtime
 
+def is_socket_connected(sock: socket.socket):
+    try:
+        # Set the socket to non-blocking mode
+        sock.setblocking(False)
+
+        # Peek into the socket to check for data
+        data = sock.recv(1, socket.MSG_PEEK)
+
+        # If the data is an empty byte string, the socket is not connected
+        return False if data == b'' else True
+    except BlockingIOError:
+        # If the operation will block, set the socket back to blocking mode
+        sock.setblocking(True)
+        return True
+    except (ConnectionResetError, ConnectionError, ConnectionAbortedError):
+        # Handle specific connection-related errors
+        return False
+    finally:
+        # Always set the socket back to blocking mode before returning
+        sock.setblocking(True)
 
 def InstrumentClient(conn, q, killer, client_id):
-    while not killer.SHOULD_END and not conn._closed and not conn.fileno() == -1:
+    while not killer.SHOULD_END and not conn._closed and not conn.fileno() == -1 and is_socket_connected(conn):
         print(f"[{client_id}]KILLER:" + str(killer.SHOULD_END), flush=True)
         data = readMsg(conn)
         if data.split(" ")[0] == "SYID":
@@ -633,7 +665,7 @@ with socket.socket() as server_sock:
 
             myprint("Starting 'measurement' thread for this client to enqueue values")
             q = Queue()
-            p = Process(target=herm_dummy_value_gen, args=(q, killer))
+            p = Process(target=herm_dummy_value_gen, args=(conn, q, killer))
             p.start()
 
             p2 = Process(target=InstrumentClient, args=(conn, q, killer, client_id))
@@ -642,3 +674,4 @@ with socket.socket() as server_sock:
     server_sock.shutdown(socket.SHUT_RDWR)
     server_sock.close()
     print("END!")
+
