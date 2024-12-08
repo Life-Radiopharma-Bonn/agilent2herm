@@ -3,6 +3,8 @@ import time
 import random
 import datetime
 import math
+import pika
+import bson
 
 from multiprocessing import Process, Queue
 from enum import Enum
@@ -543,6 +545,45 @@ def herm_dummy_value_gen(conn, q, killer):
         #    print(f"{avg_sleep} avg-sleep")
         time.sleep(1.0)
 
+def herm_value_getter_rabbitmq(conn, q, killer):
+    myprint("starting herm value getter (rabbitmq)")
+
+    time.sleep(3)  # ungefähr 6 sekunden dauert die inistialisierung des UIB2, daher bringen wir so die Signale übereinander
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
+    channel = connection.channel()
+
+    channel.exchange_declare(exchange='data', type='fanout')
+
+    result = channel.queue_declare(exclusive=True)
+    queue_name = result.method.queue
+
+    channel.queue_bind(exchange='data', queue=queue_name)
+
+    def callback(ch, method, properties, body):
+        data = bson.loads(body)
+        print("Received", data)
+        q.put(int(data.data))
+
+    channel.basic_consume(callback, queue=queue_name, no_ack=True)
+    channel.start_consuming()
+
+
+    while not killer.SHOULD_END and is_socket_connected(conn):
+        myprint("herm side qsize: " + str(q.qsize()))
+        if q.qsize() > 30:
+            print("client seems gone - dieing this thread")
+            break
+        time.sleep(10.0)
+
+    connection.close()
+
+
+
+
+
+
+
+
 
 class VirtualInstrument:
     """A simple class for emulating the communications protocol of an Agilent/HP 35900E Series II"""
@@ -665,7 +706,7 @@ with socket.socket() as server_sock:
 
             myprint("Starting 'measurement' thread for this client to enqueue values")
             q = Queue()
-            p = Process(target=herm_dummy_value_gen, args=(conn, q, killer))
+            p = Process(target=herm_value_getter_rabbitmq, args=(conn, q, killer))
             p.start()
 
             p2 = Process(target=InstrumentClient, args=(conn, q, killer, client_id))
