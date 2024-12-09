@@ -552,7 +552,7 @@ def herm_value_getter_rabbitmq(conn, q, killer):
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
     channel = connection.channel()
 
-    channel.exchange_declare(exchange='data', type='fanout')
+    channel.exchange_declare(exchange='data', exchange_type='fanout')
 
     result = channel.queue_declare(exclusive=True)
     queue_name = result.method.queue
