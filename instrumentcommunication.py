@@ -18,6 +18,7 @@ class ProcessKiller:
     def exit_gracefully(self, *args):
         print("RECEIVED STOP SIGNAL - PREPARING TO END")
         self.SHOULD_END = True
+        exit()
 
     def __init__(self):
         print("Setting up process killer for sigint and sigterm", flush=True)
@@ -560,8 +561,12 @@ def herm_value_getter_rabbitmq(conn, q, killer):
 
     def callback(ch, method, properties, body):
         data = bson.loads(body)
-        myprint("RMQ Received", data)
+        myprint("RMQ Received" +str( data))
         q.put(int(data["data"]))
+        myprint("RMQ herm side qsize: " + str(q.qsize()))
+        if q.qsize() > 30 or not is_socket_connected(conn):
+            print("client seems gone - dieing this thread")
+            connection.close()
 
     channel.basic_consume(result.method.queue,callback,auto_ack=True)
     channel.start_consuming()
