@@ -120,7 +120,7 @@ def ARSS(conn, data):
 
     THIS SWITCH ONLY HAPPENS IF THIS INSTRUMENT IS RUNNING ALONE WITHOUT ANY OTHERS INTERACTING WITH IT.
     NOT GOING TO BE IMPLEMENTED AS THIS IS NOT A REQUIREMENT FOR US CURRENTLY
-    
+
     Typically the Interval changes in Steps of 128, so once enough time has passed, (128s) this will become 5+128=133
 
     Req: "ARSS\\n"
@@ -156,16 +156,16 @@ number_of_items_request = 0
 
 def AVSS(conn, data, q):
     """Returns the Channel A Value and System State
-    
+
     Requests always look like
     AVSS\\n
 
     Responses are shaped like:
     AVSS [ON|OFF], X, 5, ITEMS_IN_QUEUE, MILLISECONDS_SINCE_INSTRUMENT_START\\n
 
-    With X 
+    With X
         Outside of Runs
-            X=0 
+            X=0
         In Runs
             X=5
             After 124 seconds into the run
@@ -226,6 +226,10 @@ def TTSS(conn, data):
     global METHODENLAUFZEIT
     global READY_STATE
     HEADER = ""
+
+    #if READY_STATE == "ARSS NOT_READY, 14\n":
+    #    ARGR(conn, "IMPLICIT GET READY!")
+
     myprint("TTSS" + data + "\tRUNNING:" + str(RUNNING) + "\tRUN_STARTTIME:" + str(
         RUN_STARTTIME) + "\tMETHODENLAUFZEIT:" + str(METHODENLAUFZEIT))
     if data.split(" ")[1] == "AXINTO":
@@ -247,7 +251,11 @@ def TTSS(conn, data):
 
     else:
         if not RUNNING:
-            HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
+            if data.split(" ")[1] == "AXPRE":
+                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
+            else:
+                #AXPOST soll immer disabled sein
+                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
         else:
             if data.split(" ")[1] == "AXPRE":
                 HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
@@ -255,9 +263,9 @@ def TTSS(conn, data):
                 HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
 
             if data.split(" ")[1] == "AXPOST":
-                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
-                if RUN_STOPTIME != -1:
-                    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
+                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
+                #if RUN_STOPTIME != -1:
+                #    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
 
     myprint(f"Sending TTSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -270,7 +278,7 @@ def ARXR(conn, data):
 
 def AVRD(conn, data, q):
     """Channel A Value Read - Returns X items from the Instrument Queue
-    
+
     Example:
     Req: AVRD\\n
     Resp: AVRD HEX, 002;01234567ABCDEF12\\n
@@ -294,7 +302,7 @@ def AVRD(conn, data, q):
 
 def AREV(conn, data, q):
     """Channel A REference Value
-    
+
     Default:
         Req: "AREV\\n"
         Resp: "AREV NONE; NONE\\n"
@@ -331,6 +339,9 @@ def AREV(conn, data, q):
 
     myprint(f"Sending AREV {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
+
+    #if READY_STATE == "ARSS NOT_READY, 14\n":
+    #    ARGR(conn, "IMPLICIT GET READY!")
 
 
 def AVDF(conn, data):
@@ -543,27 +554,27 @@ def herm_value_getter_rabbitmq(conn, q, killer):
 
     channel.exchange_declare(exchange='data', exchange_type='fanout')
 
-    result = channel.queue_declare(exclusive=True)
-    queue_name = result.method.queue
+    result = channel.queue_declare(queue='', exclusive=True)
 
-    channel.queue_bind(exchange='data', queue=queue_name)
+    channel.queue_bind(exchange='data', queue=result.method.queue)
 
     def callback(ch, method, properties, body):
         data = bson.loads(body)
-        print("Received", data)
-        q.put(int(data.data))
+        myprint("RMQ Received", data)
+        q.put(int(data["data"]))
 
-    channel.basic_consume(callback, queue=queue_name, no_ack=True)
+    channel.basic_consume(result.method.queue,callback,auto_ack=True)
     channel.start_consuming()
 
 
     while not killer.SHOULD_END and is_socket_connected(conn):
-        myprint("herm side qsize: " + str(q.qsize()))
+        myprint("RMQ herm side qsize: " + str(q.qsize()))
         if q.qsize() > 30:
             print("client seems gone - dieing this thread")
             break
         time.sleep(10.0)
 
+    myprint("RMQ CLOSE!")
     connection.close()
 
 
@@ -704,4 +715,3 @@ with socket.socket() as server_sock:
     server_sock.shutdown(socket.SHUT_RDWR)
     server_sock.close()
     print("END!")
-
