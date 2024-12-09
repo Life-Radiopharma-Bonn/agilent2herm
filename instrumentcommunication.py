@@ -195,7 +195,7 @@ def TTSS(conn, data):
     AXPRE
     AXINTO
     AXPOST
-    
+
     For Usage of channel A.
     For Channel B these might be
     BXPRE
@@ -226,10 +226,6 @@ def TTSS(conn, data):
     global METHODENLAUFZEIT
     global READY_STATE
     HEADER = ""
-
-    #if READY_STATE == "ARSS NOT_READY, 14\n":
-    #    ARGR(conn, "IMPLICIT GET READY!")
-
     myprint("TTSS" + data + "\tRUNNING:" + str(RUNNING) + "\tRUN_STARTTIME:" + str(
         RUN_STARTTIME) + "\tMETHODENLAUFZEIT:" + str(METHODENLAUFZEIT))
     if data.split(" ")[1] == "AXINTO":
@@ -251,11 +247,7 @@ def TTSS(conn, data):
 
     else:
         if not RUNNING:
-            if data.split(" ")[1] == "AXPRE":
-                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
-            else:
-                #AXPOST soll immer disabled sein
-                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
+            HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
         else:
             if data.split(" ")[1] == "AXPRE":
                 HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
@@ -263,9 +255,9 @@ def TTSS(conn, data):
                 HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
 
             if data.split(" ")[1] == "AXPOST":
-                HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, -1, 0\n"""
-                #if RUN_STOPTIME != -1:
-                #    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
+                HEADER = """TTSS """ + data.split(" ")[1] + """, ENABLED, -1, 0\n"""
+                if RUN_STOPTIME != -1:
+                    HEADER = """TTSS """ + data.split(" ")[1] + """, DISABLED, 15, 0\n"""
 
     myprint(f"Sending TTSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -339,9 +331,6 @@ def AREV(conn, data, q):
 
     myprint(f"Sending AREV {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
-
-    if READY_STATE == "ARSS NOT_READY, 14\n":
-        ARGR(conn, "IMPLICIT GET READY!")
 
 
 def AVDF(conn, data):
