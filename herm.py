@@ -28,7 +28,7 @@ def persistValue(val,channel):
 with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:
     connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
     channel = connection.channel()
-    channel.exchange_declare(exchange='data', type='fanout')
+    channel.exchange_declare(exchange='data', exchange_type='fanout')
 
     print("removing old data:"+ser.read(ser.in_waiting).decode("ascii"))
     ser.write(b'MEANVALUE 1\r\n')
