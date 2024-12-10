@@ -34,7 +34,7 @@ with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:
     time.sleep(0.5)
     print(readUntil(ser,"\r\n"),flush=True)
     time.sleep(0.5)
-    ser.write(b'OUTPUTMODE 2\r\n')
+    ser.write(b'OUTPUTMODE 2\r\n')#2=1hz,1=10hz
     ser.flush()
     time.sleep(0.5)
     print(readUntil(ser,"\r\n"),flush=True)
