@@ -15,12 +15,12 @@ def parseLine(line):
     return list(filter(None,line.split(" ")))
 
 def persistValue(val,channel):
-    with open("/mnt/berthold/tmp","w") as f:
-        f.write(str(int(val)))
-    os.rename("/mnt/berthold/tmp","/mnt/berthold/latest")
-    with open("/mnt/berthold/tmp_timestamp","w") as f:
-        f.write(str(datetime.datetime.now().timestamp()))
-    os.rename("/mnt/berthold/tmp_timestamp","/mnt/berthold/timestamp")
+    #with open("/mnt/berthold/tmp","w") as f:
+    #    f.write(str(int(val)))
+    #os.rename("/mnt/berthold/tmp","/mnt/berthold/latest")
+    #with open("/mnt/berthold/tmp_timestamp","w") as f:
+    #    f.write(str(datetime.datetime.now().timestamp()))
+    #os.rename("/mnt/berthold/tmp_timestamp","/mnt/berthold/timestamp")
     data = {'data': val}
     channel.basic_publish(exchange='data', routing_key='', body=bson.dumps(data))
 
@@ -42,7 +42,7 @@ with serial.Serial("/dev/ttyUSB0",19200,timeout=10) as ser:
     time.sleep(0.5)
     print(readUntil(ser,"\r\n"),flush=True)
     time.sleep(0.5)
-    ser.write(b'OUTPUTMODE 2\r\n')
+    ser.write(b'OUTPUTMODE 1\r\n')
     ser.flush()
     time.sleep(0.5)
     print(readUntil(ser,"\r\n"),flush=True)
