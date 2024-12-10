@@ -58,11 +58,15 @@ def myprint(msg, flush=True):
 def readMsg(conn):
     buf = ""
     while '\n' not in buf:
-        tmp = conn.recv(1)
-        if tmp == b'\x0a':
-            break
+        try:
+            tmp = conn.recv(1)
+            if tmp == b'\x0a':
+                break
+            buf = buf + tmp.decode("ascii")
+        except:
+            myprint("exception in readMsg, retry in 10ms")
+            time.sleep(0.01)
         # myprint(f"{tmp}" + " " + str(tmp))
-        buf = buf + tmp.decode("ascii")
         # myprint(f"buffer: {buf}")
         # myprint(f"buffer: {buf}")
     myprint(f"buffer: {buf}")
@@ -184,7 +188,7 @@ def AVSS(conn, data, q):
         state = "5"
     if not RUNNING and READY_STATE != "":
         state = "14"
-    HEADER = """AVSS ON, """ + state + """, 5, """ + str(min(q.qsize(), 9)) + """, """ + delta + """\n"""
+    HEADER = """AVSS ON, """ + state + """, 5, """ + str(q.qsize()) + """, """ + delta + """\n"""
     # HEADER = """AVSS ON, 0, 5, 2, """ + delta + """\n"""
     myprint(f"Sending AVSS {HEADER}", flush=True)
     conn.sendall(HEADER.encode("ascii"))
@@ -291,7 +295,7 @@ def AVRD(conn, data, q):
     global number_of_items_request
     qsize = number_of_items_request
 
-    HEADER = """AVRD HEX, 00""" + str(qsize) + """;"""
+    HEADER = """AVRD HEX, """ + ("%03d" % (qsize)) + """;"""
     for i in range(0, qsize):
         val_str = str(hex(encode_value(q.get()))[2:]).upper().zfill(8)
         HEADER = HEADER + val_str
@@ -448,7 +452,7 @@ def AVSL(conn, data, q):
 
     # this is a request - lets answer with "AVSL 1000\n" (=1Hz)
     if i == "?":
-        HEADER = """AVSL 1000\n"""
+        HEADER = """AVSL 100\n"""
         conn.sendall(HEADER.encode("ascii"))
 
 
@@ -508,7 +512,7 @@ def herm_dummy_value_gen(conn, q, killer):
 
     while not killer.SHOULD_END and is_socket_connected(conn):
         myprint("herm side qsize: " + str(q.qsize()))
-        if q.qsize() > 100:
+        if q.qsize() > 500:
             print("client seems gone - dieing this thread")
             break
         # if readTimestampDeltaFromFile():
@@ -564,7 +568,7 @@ def herm_value_getter_rabbitmq(conn, q, killer):
         myprint("RMQ Received" +str( data))
         q.put(int(data["data"]))
         myprint("RMQ herm side qsize: " + str(q.qsize()))
-        if q.qsize() > 30 or not is_socket_connected(conn):
+        if q.qsize() > 500 or not is_socket_connected(conn):
             print("client seems gone - dieing this thread")
             connection.close()
 
@@ -574,7 +578,7 @@ def herm_value_getter_rabbitmq(conn, q, killer):
 
     while not killer.SHOULD_END and is_socket_connected(conn):
         myprint("RMQ herm side qsize: " + str(q.qsize()))
-        if q.qsize() > 30:
+        if q.qsize() > 500:
             print("client seems gone - dieing this thread")
             break
         time.sleep(10.0)
